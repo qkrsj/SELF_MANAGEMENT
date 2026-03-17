@@ -1282,7 +1282,26 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 function focusL(sel){const els=document.querySelectorAll(sel);els[els.length-1]?.focus();}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
-// ── AI 식단 평가 ──────────────────────────────────────
+// ── 식품 DB 로드 ───────────────────────────────────────
+let FOOD_DB = {};
+let FOOD_DB_LOADED = false;
+
+async function loadFoodDB(){
+  if(FOOD_DB_LOADED) return;
+  try {
+    const res = await fetch('https://qkrsj.github.io/SELF_MANAGEMENT/food_scores.json');
+    FOOD_DB = await res.json();
+    FOOD_DB_LOADED = true;
+    console.log(`✅ 식품 DB 로드 완료: ${Object.keys(FOOD_DB).length}개`);
+  } catch(e){
+    console.log('식품 DB 로드 실패:', e);
+  }
+}
+
+// 앱 시작 시 미리 로드
+loadFoodDB();
+
+// ── 식단 평가 (food_scores.json 기반) ─────────────────
 async function evalDiet(){
   if(!foods.length){ showToast('식단을 먼저 추가해주세요'); return; }
 
@@ -1292,37 +1311,75 @@ async function evalDiet(){
 
   box.style.display = 'block';
   scoreEl.textContent = '...';
-  commentEl.innerHTML = '<span style="color:var(--text3)">AI가 분석 중이에요...</span>';
+  commentEl.innerHTML = '<span style="color:var(--text3)">분석 중이에요...</span>';
 
-  const foodList = foods.map(f=>(f.time?`[${f.time}] `:'')+f.text).join(', ');
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:400,
-        system:`당신은 한국의 헬스/다이어트 전문 영양사입니다. 사용자의 하루 식단을 보고 간결하게 평가해주세요. 반드시 아래 JSON 형식으로만 응답하세요:
-{"score":85,"comment":"총평 2~3문장. 좋은점 1가지, 개선점 1가지만."}
-점수 기준: 단백질 충분(+20), 채소류(+15), 과식없음(+15), 규칙적식사(+10), 가공식품없음(+10), 균형잡힌영양(+30)`,
-        messages:[{role:'user', content:`오늘 식단: ${foodList}`}]
-      })
-    });
-    const data = await res.json();
-    const text = data.content?.[0]?.text || '';
-    const clean = text.replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(clean);
-
-    const score = parsed.score;
-    const color = score>=80?'#00b86b':score>=60?'#6a54ff':'#ff4444';
-    scoreEl.style.color = color;
-    scoreEl.textContent = score;
-    commentEl.innerHTML = parsed.comment.replace(/\n/g,'<br>');
-  } catch(e){
-    scoreEl.textContent = '—';
-    commentEl.innerHTML = '<span style="color:#ff4444">평가에 실패했어요. 다시 시도해주세요.</span>';
+  // DB 아직 안 로드됐으면 기다리기
+  if(!FOOD_DB_LOADED){
+    await loadFoodDB();
   }
+
+  // 식단 텍스트에서 식품명 검색
+  const allText = foods.map(f=>f.text).join(' ');
+  let matchedFoods = [];
+  let totalScore = 0;
+  let totalProtein = 0;
+  let totalCalorie = 0;
+  let totalSodium = 0;
+  let totalSugar = 0;
+
+  // DB에서 매칭되는 식품 찾기
+  for(const [name, data] of Object.entries(FOOD_DB)){
+    // 식품명의 핵심 키워드 추출 (첫 단어)
+    const keyword = name.split('_')[0];
+    if(allText.includes(keyword) || allText.includes(name)){
+      matchedFoods.push({name, ...data});
+      totalScore += data.score;
+      totalProtein += data.단백질 || 0;
+      totalCalorie += data.에너지 || 0;
+      totalSodium += data.나트륨 || 0;
+      totalSugar += data.당류 || 0;
+    }
+  }
+
+  if(!matchedFoods.length){
+    // 매칭 안 되면 기본 규칙 기반 평가
+    scoreEl.textContent = '—';
+    commentEl.innerHTML = `
+      <div style="color:var(--text2);font-size:13px">
+        식품 DB에서 매칭되는 식품을 찾지 못했어요.<br>
+        <span style="color:var(--text3);font-size:12px">
+          (DB에 등록된 식품명으로 입력하면 정확한 점수가 나와요)
+        </span>
+      </div>`;
+    return;
+  }
+
+  const avgScore = Math.round(totalScore / matchedFoods.length);
+  const color = avgScore>=80?'#00b86b':avgScore>=60?'#6a54ff':'#ff4444';
+  scoreEl.style.color = color;
+  scoreEl.textContent = avgScore;
+
+  // 코멘트 생성
+  const matched = matchedFoods.map(f=>`${f.name}(${f.score}점)`).join(', ');
+  const goodPoint = totalProtein >= 60 ? '단백질 섭취가 충분해요 💪' :
+                    totalProtein >= 30 ? '단백질 섭취가 양호해요' : '단백질이 부족해요 🥩';
+  const badPoint = totalSodium > 2000 ? '나트륨이 높아요 ⚠️' :
+                   totalSugar > 30 ? '당류가 높아요 ⚠️' :
+                   totalCalorie > 2500 ? '칼로리가 높아요 ⚠️' : '영양 균형이 잘 맞아요 ✅';
+
+  commentEl.innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">
+      매칭된 식품: ${matched}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;font-size:13px">
+      <div>✅ ${goodPoint}</div>
+      <div>${badPoint}</div>
+      <div style="color:var(--text3);font-size:12px;margin-top:4px">
+        단백질 ${totalProtein.toFixed(1)}g · 
+        칼로리 ${totalCalorie.toFixed(0)}kcal · 
+        나트륨 ${totalSodium.toFixed(0)}mg
+      </div>
+    </div>`;
 }
 
 let templates = JSON.parse(localStorage.getItem('tracker_templates')||'[]');
