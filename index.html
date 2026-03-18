@@ -1298,10 +1298,50 @@ async function loadFoodDB(){
   }
 }
 
-// 앱 시작 시 미리 로드
 loadFoodDB();
 
-// ── 식단 평가 (food_scores.json 기반) ─────────────────
+// ── 식품명 매칭 함수 ───────────────────────────────────
+function findFoodInDB(inputText){
+  // 입력 텍스트를 + 로 분리하고 숫자 제거
+  const keywords = inputText
+    .split(/[+,\s]+/)
+    .map(k => k.replace(/[0-9]/g, '').trim())
+    .filter(k => k.length >= 2);
+
+  let matched = [];
+
+  for(const keyword of keywords){
+    let bestMatch = null;
+    let bestScore = 0;
+
+    for(const [dbName, data] of Object.entries(FOOD_DB)){
+      // DB 식품명에서 _ 앞 키워드 추출
+      const dbKeywords = dbName.split('_').map(k=>k.trim());
+      const dbMain = dbKeywords[0]; // 예: "닭가슴살", "국밥"
+
+      // 정확 매칭
+      if(dbMain === keyword || dbName === keyword){
+        bestMatch = {name: dbMain, ...data};
+        break;
+      }
+      // 포함 매칭 (keyword가 DB명에 포함)
+      if(dbName.includes(keyword) && keyword.length > bestScore){
+        bestMatch = {name: keyword, ...data};
+        bestScore = keyword.length;
+      }
+      // 포함 매칭 (DB명이 keyword에 포함)
+      if(keyword.includes(dbMain) && dbMain.length > bestScore){
+        bestMatch = {name: dbMain, ...data};
+        bestScore = dbMain.length;
+      }
+    }
+    if(bestMatch) matched.push(bestMatch);
+  }
+
+  return matched;
+}
+
+// ── 식단 평가 ──────────────────────────────────────────
 async function evalDiet(){
   if(!foods.length){ showToast('식단을 먼저 추가해주세요'); return; }
 
@@ -1313,71 +1353,65 @@ async function evalDiet(){
   scoreEl.textContent = '...';
   commentEl.innerHTML = '<span style="color:var(--text3)">분석 중이에요...</span>';
 
-  // DB 아직 안 로드됐으면 기다리기
-  if(!FOOD_DB_LOADED){
-    await loadFoodDB();
-  }
+  if(!FOOD_DB_LOADED) await loadFoodDB();
 
-  // 식단 텍스트에서 식품명 검색
-  const allText = foods.map(f=>f.text).join(' ');
   let matchedFoods = [];
-  let totalScore = 0;
-  let totalProtein = 0;
-  let totalCalorie = 0;
-  let totalSodium = 0;
-  let totalSugar = 0;
+  let totalProtein = 0, totalCalorie = 0, totalSodium = 0, totalSugar = 0;
 
-  // DB에서 매칭되는 식품 찾기
-  for(const [name, data] of Object.entries(FOOD_DB)){
-    // 식품명의 핵심 키워드 추출 (첫 단어)
-    const keyword = name.split('_')[0];
-    if(allText.includes(keyword) || allText.includes(name)){
-      matchedFoods.push({name, ...data});
-      totalScore += data.score;
-      totalProtein += data.단백질 || 0;
-      totalCalorie += data.에너지 || 0;
-      totalSodium += data.나트륨 || 0;
-      totalSugar += data.당류 || 0;
-    }
+  for(const food of foods){
+    const found = findFoodInDB(food.text);
+    matchedFoods.push(...found);
   }
+
+  // 중복 제거
+  const seen = new Set();
+  matchedFoods = matchedFoods.filter(f=>{
+    if(seen.has(f.name)) return false;
+    seen.add(f.name); return true;
+  });
 
   if(!matchedFoods.length){
-    // 매칭 안 되면 기본 규칙 기반 평가
     scoreEl.textContent = '—';
     commentEl.innerHTML = `
-      <div style="color:var(--text2);font-size:13px">
-        식품 DB에서 매칭되는 식품을 찾지 못했어요.<br>
+      <div style="font-size:13px;color:var(--text2)">
+        매칭되는 식품을 찾지 못했어요.<br>
         <span style="color:var(--text3);font-size:12px">
-          (DB에 등록된 식품명으로 입력하면 정확한 점수가 나와요)
+          입력 예시: 밥, 닭가슴살, 계란, 소고기, 라면, 피자
         </span>
       </div>`;
     return;
   }
 
-  const avgScore = Math.round(totalScore / matchedFoods.length);
+  matchedFoods.forEach(f=>{
+    totalProtein += f.단백질 || 0;
+    totalCalorie += f.에너지 || 0;
+    totalSodium  += f.나트륨 || 0;
+    totalSugar   += f.당류   || 0;
+  });
+
+  const avgScore = Math.round(
+    matchedFoods.reduce((s,f)=>s+(f.score||50), 0) / matchedFoods.length
+  );
+
   const color = avgScore>=80?'#00b86b':avgScore>=60?'#6a54ff':'#ff4444';
   scoreEl.style.color = color;
   scoreEl.textContent = avgScore;
 
-  // 코멘트 생성
-  const matched = matchedFoods.map(f=>`${f.name}(${f.score}점)`).join(', ');
-  const goodPoint = totalProtein >= 60 ? '단백질 섭취가 충분해요 💪' :
-                    totalProtein >= 30 ? '단백질 섭취가 양호해요' : '단백질이 부족해요 🥩';
-  const badPoint = totalSodium > 2000 ? '나트륨이 높아요 ⚠️' :
-                   totalSugar > 30 ? '당류가 높아요 ⚠️' :
-                   totalCalorie > 2500 ? '칼로리가 높아요 ⚠️' : '영양 균형이 잘 맞아요 ✅';
+  const proteinComment = totalProtein>=60 ? '단백질 섭취 충분 💪' :
+                         totalProtein>=30 ? '단백질 섭취 양호' : '단백질 부족 🥩';
+  const warnComment    = totalSodium>2000 ? '나트륨 과다 ⚠️' :
+                         totalSugar>30    ? '당류 과다 ⚠️' :
+                         totalCalorie>2500? '칼로리 과다 ⚠️' : '영양 균형 양호 ✅';
 
   commentEl.innerHTML = `
     <div style="font-size:12px;color:var(--text3);margin-bottom:8px">
-      매칭된 식품: ${matched}
+      매칭: ${matchedFoods.map(f=>f.name).join(', ')}
     </div>
     <div style="display:flex;flex-direction:column;gap:4px;font-size:13px">
-      <div>✅ ${goodPoint}</div>
-      <div>${badPoint}</div>
+      <div>✅ ${proteinComment}</div>
+      <div>${warnComment}</div>
       <div style="color:var(--text3);font-size:12px;margin-top:4px">
-        단백질 ${totalProtein.toFixed(1)}g · 
-        칼로리 ${totalCalorie.toFixed(0)}kcal · 
-        나트륨 ${totalSodium.toFixed(0)}mg
+        단백질 ${totalProtein.toFixed(1)}g · 칼로리 ${totalCalorie.toFixed(0)}kcal · 나트륨 ${totalSodium.toFixed(0)}mg
       </div>
     </div>`;
 }
