@@ -277,7 +277,7 @@
       <div class="card">
         <div class="card-label">⚖️ 몸무게</div>
         <div class="card-value">
-          <input type="number" class="big-input" id="inputWeight" placeholder="86.6" step="0.1">
+          <input type="number" class="big-input" id="inputWeight" placeholder="0.0" step="0.1">
           <span class="unit">kg</span>
         </div>
       </div>
@@ -302,14 +302,18 @@
         <div class="card-label" style="margin:0">🏃 유산소</div>
         <div style="display:flex;align-items:center;gap:6px">
           <span style="font-size:12px;color:var(--text2)">시간</span>
-          <input type="number" class="dur-input" id="inputCardioMin" placeholder="45">
+          <input type="number" class="dur-input" id="inputCardioMin" placeholder="0">
           <span style="font-size:12px;color:var(--text2)">분</span>
         </div>
       </div>
-      <div class="cardio-row">
-        <span>🚴</span>
-        <input type="text" id="inputCardioType" placeholder="실내사이클, 런닝머신, 줄넘기...">
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="ex-type-btn" onclick="toggleCardioType(this,'실내사이클')">🚴 실내사이클</button>
+        <button class="ex-type-btn" onclick="toggleCardioType(this,'런닝머신')">🏃 런닝머신</button>
+        <button class="ex-type-btn" onclick="toggleCardioType(this,'줄넘기')">🪢 줄넘기</button>
+        <button class="ex-type-btn" onclick="toggleCardioType(this,'걷기')">🚶 걷기</button>
+        <button class="ex-type-btn" onclick="toggleCardioType(this,'수영')">🏊 수영</button>
       </div>
+      <input type="text" class="dur-input" id="inputCardioType" placeholder="직접 입력" style="width:100%;padding:8px 12px;border-radius:8px;font-size:13px">
     </div>
 
     <!-- 웨이트 -->
@@ -360,18 +364,7 @@
     <div class="card-full">
       <div class="card-label">🍚 오늘 식단</div>
       <div class="item-list" id="foodList"></div>
-      <div style="display:flex;gap:8px;margin-top:4px">
-        <button class="add-btn" style="flex:1" onclick="openFoodPicker()">＋ 식단 추가</button>
-        <button class="add-btn" style="flex:1;border-color:var(--accent);color:var(--accent)" onclick="evalDiet()">🤖 AI 식단 평가</button>
-      </div>
-      <div id="dietScoreBox" style="display:none;margin-top:14px;padding:14px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:12px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <span style="font-size:13px;font-weight:700;color:var(--text2)">식단 점수</span>
-          <span id="dietScore" style="font-family:'Space Mono',monospace;font-size:26px;font-weight:700;color:var(--accent)">—</span>
-          <span style="font-size:13px;color:var(--text3)">/ 100</span>
-        </div>
-        <div id="dietComment" style="font-size:13px;color:var(--text2);line-height:1.7"></div>
-      </div>
+      <button class="add-btn" onclick="openFoodPicker()">＋ 식단 추가</button>
     </div>
 
     <!-- 메모 -->
@@ -549,6 +542,7 @@
 // ── STATE ─────────────────────────────────────────────
 let records = JSON.parse(localStorage.getItem('tracker_v2')||'[]');
 let selBodyPart='어깨', selCond=0, activeChips=new Set();
+let selBodyParts={};
 let routines=[], foods=[], suppItems=[];
 let wkOffset=0, monOffset=0, ltRange=30;
 
@@ -567,10 +561,12 @@ function updateHeaderDate(){
   const d=new Date();
   document.getElementById('inputDate').value=toDS(d);
   updateHeaderDate();
-  // 자정에 날짜 자동 업데이트
   const now=new Date();
   const msToMidnight=(new Date(now.getFullYear(),now.getMonth(),now.getDate()+1)-now);
   setTimeout(()=>{updateHeaderDate();setInterval(updateHeaderDate,86400000);},msToMidnight);
+  // 완전 초기화
+  selCond=0; selBodyParts={}; activeChips=new Set();
+  routines=[]; foods=[]; suppItems=[];
   renderRL([]); renderFL([]); renderSL([]);
 })();
 
@@ -586,6 +582,18 @@ function switchTab(tab){
   if(tab==='longterm')renderLT();
 }
 
+// ── CARDIO TYPE ───────────────────────────────────────
+function toggleCardioType(btn, type){
+  const isActive = btn.classList.contains('active');
+  document.querySelectorAll('.ex-type-btn[onclick^="toggleCardioType"]').forEach(b=>b.classList.remove('active'));
+  if(!isActive){
+    btn.classList.add('active');
+    document.getElementById('inputCardioType').value = type;
+  } else {
+    document.getElementById('inputCardioType').value = '';
+  }
+}
+
 // ── CONDITION ─────────────────────────────────────────
 function setCond(n){
   selCond=n;
@@ -594,8 +602,6 @@ function setCond(n){
 }
 
 // ── BODY PART (다중선택) ──────────────────────────────
-let selBodyParts = {}; // { 어깨: 40, 가슴: 30 }
-
 function toggleBodyPart(btn, part){
   if(selBodyParts[part] !== undefined){
     delete selBodyParts[part];
@@ -776,6 +782,29 @@ function saveRecord(){
   records.sort((a,b)=>b.date.localeCompare(a.date));
   localStorage.setItem('tracker_v2',JSON.stringify(records));
   showToast('✅ 저장 완료!');
+  resetTodayForm();
+}
+
+function resetTodayForm(){
+  const d = new Date();
+  document.getElementById('inputDate').value = toDS(d);
+  document.getElementById('inputWakeTime').value = '';
+  document.getElementById('inputWeight').value = '';
+  document.getElementById('inputCardioMin').value = '';
+  document.getElementById('inputCardioType').value = '';
+  document.querySelectorAll('.ex-type-btn[onclick^="toggleCardioType"]').forEach(b=>b.classList.remove('active'));
+  document.getElementById('inputGymTime').value = '';
+  document.getElementById('inputMemo').value = '';
+  selCond=0;
+  [1,2,3,4,5].forEach(i=>document.getElementById('cond'+i)?.classList.remove('active'));
+  document.getElementById('condLabel').textContent='선택하세요';
+  selBodyParts={};
+  document.querySelectorAll('#bodyPartBtns .ex-type-btn').forEach(b=>b.classList.remove('active'));
+  renderBodyPartTimes();
+  activeChips=new Set();
+  document.querySelectorAll('.supp-chip').forEach(b=>b.classList.remove('active'));
+  routines=[]; foods=[]; suppItems=[];
+  renderRL([]); renderFL([]); renderSL([]);
 }
 
 // ── HISTORY ───────────────────────────────────────────
@@ -1282,140 +1311,7 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 function focusL(sel){const els=document.querySelectorAll(sel);els[els.length-1]?.focus();}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
-// ── 식품 DB 로드 ───────────────────────────────────────
-let FOOD_DB = {};
-let FOOD_DB_LOADED = false;
-
-async function loadFoodDB(){
-  if(FOOD_DB_LOADED) return;
-  try {
-    const res = await fetch('https://qkrsj.github.io/SELF_MANAGEMENT/food_scores.json');
-    FOOD_DB = await res.json();
-    FOOD_DB_LOADED = true;
-    console.log(`✅ 식품 DB 로드 완료: ${Object.keys(FOOD_DB).length}개`);
-  } catch(e){
-    console.log('식품 DB 로드 실패:', e);
-  }
-}
-
-loadFoodDB();
-
-// ── 식품명 매칭 함수 ───────────────────────────────────
-function findFoodInDB(inputText){
-  // 입력 텍스트를 + 로 분리하고 숫자 제거
-  const keywords = inputText
-    .split(/[+,\s]+/)
-    .map(k => k.replace(/[0-9]/g, '').trim())
-    .filter(k => k.length >= 2);
-
-  let matched = [];
-
-  for(const keyword of keywords){
-    let bestMatch = null;
-    let bestScore = 0;
-
-    for(const [dbName, data] of Object.entries(FOOD_DB)){
-      // DB 식품명에서 _ 앞 키워드 추출
-      const dbKeywords = dbName.split('_').map(k=>k.trim());
-      const dbMain = dbKeywords[0]; // 예: "닭가슴살", "국밥"
-
-      // 정확 매칭
-      if(dbMain === keyword || dbName === keyword){
-        bestMatch = {name: dbMain, ...data};
-        break;
-      }
-      // 포함 매칭 (keyword가 DB명에 포함)
-      if(dbName.includes(keyword) && keyword.length > bestScore){
-        bestMatch = {name: keyword, ...data};
-        bestScore = keyword.length;
-      }
-      // 포함 매칭 (DB명이 keyword에 포함)
-      if(keyword.includes(dbMain) && dbMain.length > bestScore){
-        bestMatch = {name: dbMain, ...data};
-        bestScore = dbMain.length;
-      }
-    }
-    if(bestMatch) matched.push(bestMatch);
-  }
-
-  return matched;
-}
-
-// ── 식단 평가 ──────────────────────────────────────────
-async function evalDiet(){
-  if(!foods.length){ showToast('식단을 먼저 추가해주세요'); return; }
-
-  const box = document.getElementById('dietScoreBox');
-  const scoreEl = document.getElementById('dietScore');
-  const commentEl = document.getElementById('dietComment');
-
-  box.style.display = 'block';
-  scoreEl.textContent = '...';
-  commentEl.innerHTML = '<span style="color:var(--text3)">분석 중이에요...</span>';
-
-  if(!FOOD_DB_LOADED) await loadFoodDB();
-
-  let matchedFoods = [];
-  let totalProtein = 0, totalCalorie = 0, totalSodium = 0, totalSugar = 0;
-
-  for(const food of foods){
-    const found = findFoodInDB(food.text);
-    matchedFoods.push(...found);
-  }
-
-  // 중복 제거
-  const seen = new Set();
-  matchedFoods = matchedFoods.filter(f=>{
-    if(seen.has(f.name)) return false;
-    seen.add(f.name); return true;
-  });
-
-  if(!matchedFoods.length){
-    scoreEl.textContent = '—';
-    commentEl.innerHTML = `
-      <div style="font-size:13px;color:var(--text2)">
-        매칭되는 식품을 찾지 못했어요.<br>
-        <span style="color:var(--text3);font-size:12px">
-          입력 예시: 밥, 닭가슴살, 계란, 소고기, 라면, 피자
-        </span>
-      </div>`;
-    return;
-  }
-
-  matchedFoods.forEach(f=>{
-    totalProtein += f.단백질 || 0;
-    totalCalorie += f.에너지 || 0;
-    totalSodium  += f.나트륨 || 0;
-    totalSugar   += f.당류   || 0;
-  });
-
-  const avgScore = Math.round(
-    matchedFoods.reduce((s,f)=>s+(f.score||50), 0) / matchedFoods.length
-  );
-
-  const color = avgScore>=80?'#00b86b':avgScore>=60?'#6a54ff':'#ff4444';
-  scoreEl.style.color = color;
-  scoreEl.textContent = avgScore;
-
-  const proteinComment = totalProtein>=60 ? '단백질 섭취 충분 💪' :
-                         totalProtein>=30 ? '단백질 섭취 양호' : '단백질 부족 🥩';
-  const warnComment    = totalSodium>2000 ? '나트륨 과다 ⚠️' :
-                         totalSugar>30    ? '당류 과다 ⚠️' :
-                         totalCalorie>2500? '칼로리 과다 ⚠️' : '영양 균형 양호 ✅';
-
-  commentEl.innerHTML = `
-    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">
-      매칭: ${matchedFoods.map(f=>f.name).join(', ')}
-    </div>
-    <div style="display:flex;flex-direction:column;gap:4px;font-size:13px">
-      <div>✅ ${proteinComment}</div>
-      <div>${warnComment}</div>
-      <div style="color:var(--text3);font-size:12px;margin-top:4px">
-        단백질 ${totalProtein.toFixed(1)}g · 칼로리 ${totalCalorie.toFixed(0)}kcal · 나트륨 ${totalSodium.toFixed(0)}mg
-      </div>
-    </div>`;
-}
-
+// ── TEMPLATES ─────────────────────────────────────────
 let templates = JSON.parse(localStorage.getItem('tracker_templates')||'[]');
 
 function saveTplPrompt(){
